@@ -3,37 +3,34 @@ import enum
 import os
 import sys
 from abc import ABC, ABCMeta, abstractmethod
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-import aiohttp as aio
-
 # EO contributions
-import dotenv
+import aiohttp
 import pandas as pd
 import requests as req
 import yfinance as yf
-from fluid.utils.data import compact_dict
-from fluid.utils.http_client import AioHttpClient
+from dotenv import load_dotenv
 from yahoofinancials import YahooFinancials
 
+load_dotenv()
 # dotenv.load_dotenv("~/.config/zsh/.env").
-_key = dotenv.get_key(
-    "/Users/eo/.config/zsh/.env", "FINANCIAL_MODELING_PREP_KEY"
-)
-FMP_KEY = _key
+# env_path = f"/Users/eo/.config/zsh/.env"
+# _keys = dotenv.dotenv_values(dotenv_path=env_path)
+# _key = dotenv.get_key("/Users/eo/.config/zsh/.env", "FINANCIAL_MODELING_PREP_KEY")
+# FMP_KEY = _keys["FINANCIAL_MODELING_PREP_KEY"]
 
 __all__ = [
     # ------------------- OG Book API -----------------------
     "Frequency",
     "StockPriceDatasetAdapter",
     "BaseStockPriceDatasetAdapter",
-    "YahooFinancialAdapter",
+    "YahooFinancialsAdapter",
     "MarketStackAdapter",
     # ------------------- new async API by EO -------------------
-    "AsyncBaseStockPriceAdapter",
-    "FMPConfig",
+    "AsyncStockPriceAdapter",
+    # "FMPConfig",
     "FinancialModelingPrepAdapter",
     "YFinanceAdapter",
 ]
@@ -44,18 +41,18 @@ class RequiresAPIKeyMixin:
     """Mixin that lazily fetches & validates an API Key.
 
     Sub-classes **declare** the env var name via class attribute
-    ``_API_KEY_ENV`` and call ``self._require_api_key(explicit_key)`` whenever
+    `_API_KEY_ENV` and call `self._require_api_key(explicit_key)` whenever
     they actually need the key.
     """
 
-    _API_KEY_ENV: str  # overridden by subclasses
+    # overridden by subclasses
+    _API_KEY_ENV: str
 
-    def _require_api_key(self, explicit: str | None = None) -> str:
-        key = explicit or os.getenv(self._API_KEY_ENV, "")
+    def _require_api_key(self, api_key: str | None) -> str:
+        key = api_key or os.getenv(self._API_KEY_ENV, "")
         if not key:
             raise RuntimeError(
-                f"{self.__class__.__name__} needs an API key in env var "
-                f"{self._API_KEY_ENV} or as an argument."
+                f"{self.__class__.__name__}: supply `api_key` or set env var {self._API_KEY_ENV}"
             )
         return key
 
@@ -63,7 +60,11 @@ class RequiresAPIKeyMixin:
 # ================================================================
 # OG Synchronous adapters (book code slightly patched)
 # ================================================================
+
+
 class Frequency(enum.Enum):
+    """Sampling intervals supported by *yahoofinancials*."""
+
     DAILY = "daily"
     WEEKLY = "weekly"
     MONTHLY = "monthly"
@@ -117,22 +118,24 @@ class StockPriceDatasetAdapter(
     """
 
 
-class BaseStockPriceDatasetAdapter(StockPriceDatasetAdapter):
-    def __init__(self, ticker: str | None = None) -> None:
+class BaseStockPriceDatasetAdapter(StockPriceDatasetAdapter, ABC):
+    """Caches training/validation dataframes and exposes read-only props."""
+
+    def __init__(self, ticker: str):
         self._ticker = ticker
         self._training_set: pd.DataFrame | None = None
         self._validation_set: pd.DataFrame | None = None
 
-    # ---------------- public proxies ------------------
     @abstractmethod
-    def _connect_and_prepare(self, date_range: tuple[str, str]): ...
+    def _connect_and_prepare(self, date_range: tuple): ...
 
     """
     This function should be overriden by implementing data source adapter. It should connect to the stock price data source and return records within the specified date range.
     """
 
+    # ---------------- public proxies ------------------
     @property
-    def training_set(self) -> pd.DataFrame | None:
+    def training_set(self):
         # return self._training_set.copy()
         return (
             self._training_set.copy()
@@ -141,7 +144,7 @@ class BaseStockPriceDatasetAdapter(StockPriceDatasetAdapter):
         )
 
     @property
-    def validation_set(self) -> pd.DataFrame | None:
+    def validation_set(self):
         # return self._validation_set.copy()
         return (
             self._validation_set.copy()
@@ -152,28 +155,29 @@ class BaseStockPriceDatasetAdapter(StockPriceDatasetAdapter):
 
 class YahooFinancialsAdapter(BaseStockPriceDatasetAdapter):
     """
-    Dataset adapter for Yahoo Financials (finance.yahoo.com)
+    Synchronous Dataset adapter using the *yahoofinancials* package.
     """
 
     def __init__(
         self,
         ticker: str = StockPriceDatasetAdapter.DEFAULT_TICKER,
         frequency: Frequency = Frequency.DAILY,
-        training_set_date_range: tuple[str, str] = ("2020-01-01", "2024-12-31"),
+        training_set_date_range: tuple[str, str] = ("2020-01-01", "2025-04-31"),
         validation_set_date_range: tuple[str, str] = (
-            "2019-11-01",
-            "2019-12-01",
+            "2024-11-01",
+            "2024-12-01",
         ),
-    ) -> None:
-        super().__init__(ticker=ticker)
+    ):
+        super().__init__(ticker)
         self._frequency = frequency
         self._yf = YahooFinancials(self._ticker)
+
         self._training_set = self._connect_and_prepare(training_set_date_range)
         self._validation_set = self._connect_and_prepare(
             validation_set_date_range
         )
 
-    def _connect_and_prepare(self, date_range: tuple[str, str]) -> pd.DataFrame:
+    def _connect_and_prepare(self, date_range: tuple):
         records = self._yf.get_historical_price_data(
             date_range[0], date_range[1], self._frequency.value
         )[self._ticker]
@@ -186,16 +190,10 @@ class YahooFinancialsAdapter(BaseStockPriceDatasetAdapter):
         # )
         # return stock_price_records
 
-        # df = pd.DataFrame(records["prices"])[["formatted_date", "close"]]
-        # return df.rename(columns={"formatted_date": "time", "close": "stock_price"})
-
-        # df is actually used elsewhere so its best to lave it as-is, even if it is scoped locally..
-        df = [
-            pd.DataFrame(records["prices"])[["formatted_date", "close"]].rename(
-                columns={"formatted_date": "time", "close": "stock_price"}
-            )
-        ]
-        return df
+        df = pd.DataFrame(records["prices"])[["formatted_date", "close"]]
+        return df.rename(
+            columns={"formatted_date": "time", "close": "stock_price"}
+        )
 
 
 class MarketStackAdapter(RequiresAPIKeyMixin, BaseStockPriceDatasetAdapter):
@@ -206,13 +204,12 @@ class MarketStackAdapter(RequiresAPIKeyMixin, BaseStockPriceDatasetAdapter):
 
     # eo
     _API_KEY_ENV = "MARKETSTACK_API_KEY"
-    _PAGE_LIMIT = 500
-    # eo
+    _PAGE_LIMIT = 100
 
     # dictionary of requests parameters
     _REQ_PARAMS = {
         "access_key": "ce72d47022d573ffb1c47820c7e98f15",
-        "limit": 500,
+        "limit": 100,
     }
 
     # REST API url to get EOD quotes
@@ -221,6 +218,7 @@ class MarketStackAdapter(RequiresAPIKeyMixin, BaseStockPriceDatasetAdapter):
     # REST API url to get list of all stock symbols
     _TICKER_API_URL = "http://api.marketstack.com/v1/tickers"
 
+    # Internal iterator to walk paginated responses ---------------------------
     class _Paginated:
         """
         Market stack API sends paginated response with offset,
@@ -229,13 +227,13 @@ class MarketStackAdapter(RequiresAPIKeyMixin, BaseStockPriceDatasetAdapter):
         iterated over records.
         """
 
-        def __init__(self, url: str, params: dict):
+        def __init__(self, url: str, params: dict[str, Any]):
             self.url, self.params = url, params
             ## maybe url = _api_url && params = _req_params.keys() ??
             # self._req_params = req_params
             # self._api_url = api_url
             self.offset = 0
-            self.total = sys.maxsize
+            self.total = sys.maxsize  # unknown until first fetch
 
         def __iter__(self):
             return self
@@ -245,7 +243,7 @@ class MarketStackAdapter(RequiresAPIKeyMixin, BaseStockPriceDatasetAdapter):
                 raise StopIteration
             self.params["offset"] = self.offset
             resp = req.get(self.url, self.params).json()
-            self.ftotal = resp["pagination"]["total"]
+            self.total = resp["pagination"]["total"]
             self.offset += MarketStackAdapter._PAGE_LIMIT
             return resp["data"]
 
@@ -266,22 +264,23 @@ class MarketStackAdapter(RequiresAPIKeyMixin, BaseStockPriceDatasetAdapter):
 
     def __init__(
         self,
-        ticker: str | None = None,
-        training_set_date_range: tuple[str, str] = ("2020-01-01", "2024-12-31"),
-        validation_set_date_range: tuple[str, str] = (
-            "2019-11-01",
-            "2019-12-01",
+        ticker: str,
+        training_set_date_range: tuple = ("2020-01-01", "2025-04-30"),
+        validation_set_date_range: tuple = (
+            "2024-11-01",
+            "2024-12-01",
         ),
         api_key: str | None = None,
+        # _API_KEY_ENV: str,
     ):
         super().__init__(ticker)
-        self._api_key = self._require_api_key(api_key)
+        self.api_key = self._require_api_key(api_key)
         self._training_set = self._connect_and_prepare(training_set_date_range)
         self._validation_set = self._connect_and_prepare(
             validation_set_date_range
         )
 
-    def _connect_and_prepare(self, date_range: tuple[str, str]):
+    def _connect_and_prepare(self, date_range: tuple):
         # def _extract_stock_price_details(stock_price_records, page):
         #     """
         #     Inner function to extract fields: 'close', 'date', 'symbol' of current element obtained from json response.
@@ -325,7 +324,7 @@ class MarketStackAdapter(RequiresAPIKeyMixin, BaseStockPriceDatasetAdapter):
             return None
 
         params = {
-            "access_key": self._api_key,
+            "access_key": self.api_key,
             "limit": self._PAGE_LIMIT,
             "symbols": self._ticker,
             "date_from": date_range[0],
@@ -336,11 +335,12 @@ class MarketStackAdapter(RequiresAPIKeyMixin, BaseStockPriceDatasetAdapter):
 
         for page in MarketStackAdapter._Paginated(self._EOD_API_URL, params):
             df = pd.DataFrame(page)[["date", "close"]]
-            df = df.rename(columns={"close": "stock price"})
+            df.rename(columns={"close": "stock price"}, inplace=True)
             df["time"] = df["date"].str.split("T").str[0]
             frames.append(df[["time", "stock price"]])
         return pd.concat(frames, ignore_index=True) if frames else None
 
+    # Convenience lookup ------------------------------------------------------
     @classmethod
     def get_samples_of_available_tickers(
         cls, api_key: str | None = None
@@ -355,33 +355,45 @@ class MarketStackAdapter(RequiresAPIKeyMixin, BaseStockPriceDatasetAdapter):
         # ).json()
         # return [record["symbol"] for record in api_response["data"]]
 
-        key = RequiresAPIKeyMixin._require_api_key(cls, api_key)  # type: ignore[arg-type]
-        params = {"access_key": key, "limit": 500}
-        data = req.get(cls._TICKER_API_URL, params).json()["data"]
+        # key = RequiresAPIKeyMixin._require_api_key(cls, api_key)  # type: ignore[arg-type]
+        key = cls._require_api_key(cls, api_key)  # type: ignore[arg-type]
+        # params = {"access_key": key, "limit": 500}
+        data = req.get(
+            cls._TICKER_API_URL, {"access_key": key, "limit": 100}
+        ).json()["data"]
         return [d["symbol"] for d in data]
 
 
-# Async adapters (mixins not required here)
+# Async adapter interface
 class AsyncStockPriceAdapter(ABC):
+    """Minimal contract every *async* price adapter must fulfill."""
+
+    # Internal coroutine - fetch one symbol (subclasses implemented) ----------
     @abstractmethod
     async def _fetch_symbol(self, *args: Any, **kwargs: Any): ...
 
+    # public helper - gather & return tidy DataFrame --------------------------
     @abstractmethod
-    def get_stock_price_data(self, *args: Any, **kwargs: Any): ...
+    def get_stock_price_data(
+        self,
+        symbols: list[str],
+        start_date: datetime | str,
+        end_date: datetime | str,
+        **kwargs: Any,
+    ): ...
 
 
-class FinancialModelingPrepAdaptor(RequiresAPIKeyMixin, AsyncStockPriceAdapter):
+# FinancialModelingPrepAdapter async adapter ----------------------------------
+class FinancialModelingPrepAdapter(RequiresAPIKeyMixin, AsyncStockPriceAdapter):
     """
-    FMP API Client Adaptor.
-
-    Fetch market and financial data from `Financial Modeling Prep`_
-    ... _ Financial Modeling Prep: https:/financialmodelingprep.com/developer/docs/
+    Fetch OHLCV bars from Financial Modeling Prep's `/historical-price-full` endpoint
+    .. Financial Modeling Prep: https:/financialmodelingprep.com/developer/docs/
     """
 
     # url: str = "https://financialmodelingprep.com/api"
     # key: str = field(default_factory=lambda: os.environ.get("FMP_KEY", ""))
 
-    _API_KEY_ENV = "FMP_API_KEY"
+    _API_KEY_ENV = "FINANCIAL_MODELING_PREP_KEY"
 
     def __init__(
         self,
@@ -392,23 +404,31 @@ class FinancialModelingPrepAdaptor(RequiresAPIKeyMixin, AsyncStockPriceAdapter):
         self._api_key = self._require_api_key(api_key)
         self.base_url, self.timeout = base_url, timeout
 
-    # async helpers
-    async def _fetch_symbol(self, session, symbol: str, start: str, end: str):
+    # -------------------------------------------------------------------------
+    async def _fetch_symbol(
+        self, session: aiohttp.ClientSession, symbol: str, s: str, e: str
+    ):
         url = f"{self.base_url}/historical-price-full/{symbol.upper()}"
-        params = {"from": start, "to": end, "apikey": self._api_key}
+        params = {"from": s, "to": e, "apikey": self._api_key}
         async with session.get(url, params=params, timeout=self.timeout) as r:
             r.raise_for_status()
             payload = await r.json(content_type=None)
         if "historical" not in payload:
-            raise ValueError(f"No data for {symbol}: {payload}")
+            raise ValueError(f"FMP returned no data for {symbol}")
         return pd.DataFrame(payload["historical"]).assign(symbol=symbol.upper())
 
-    async def _gather(self, symbols: list[str], start: str, end: str):
-        async with aio.ClientSession() as sess:
-            tasks = [self._fetch_symbol(sess, s, start, end) for s in symbols]
+    async def _gather(self, symbols: list[str], s: str, e: str):
+        async with aiohttp.ClientSession() as session:
+            tasks = [self._fetch_symbol(session, sym, s, e) for sym in symbols]
             return await asyncio.gather(*tasks)
 
-    def get_stock_price_data(self, symbols: list[str], start_date, end_date):
+    def get_stock_price_data(
+        self,
+        symbols: list[str],
+        start_date: datetime | str,
+        end_date: datetime | str,
+    ):
+        # canonicalise dates to YYYY-MM-DD strings understood by FMP
         s = (
             start_date.strftime("%Y-%m-%d")
             if isinstance(start_date, datetime)
@@ -419,34 +439,87 @@ class FinancialModelingPrepAdaptor(RequiresAPIKeyMixin, AsyncStockPriceAdapter):
             if isinstance(end_date, datetime)
             else end_date
         )
-        dfs = asyncio.run(self._gather(symbols, s, e))
-        df = pd.concat(dfs, ignore_index=True)
+        frames = asyncio.run(self._gather(symbols, s, e))
+        df = pd.concat(frames, ignore_index=True)
         df["date"] = pd.to_datetime(df["date"], utc=True)
         return df.sort_values(["symbol", "date"]).reset_index(drop=True)
 
 
+# YFinance async adapter ------------------------------------------------------
 class YFinanceAdapter(AsyncStockPriceAdapter):
+    """
+    Concurrent downloads from Yahoo Finance via *yfinance*.
+    off-load the blocking `yf.download` call to a thread (one per symbol) using
+    `asyncio.to_thread`, then gather the results in parallel.
+    """
+
     _DEFAULT_INTERVAL = "1d"
 
     async def _fetch_symbol(
-        self, symbol: str, start: str, end: str, interval: str
+        self,
+        symbol: str,
+        s: str,
+        e: str,
+        interval: str,
     ):
-        def blocking_download():
+        # Inner blocking function executed in thread-pool ---------------------
+        def _blocking_download():
             df = yf.download(
                 symbol,
-                start=start,
-                end=end,
+                start=s,
+                end=e,
                 interval=interval,
                 progress=False,
                 threads=False,
             )
+            if df.empty:
+                raise ValueError(f"No Yahoo data for {symbol}")
+            df.reset_index(inplace=True)
+            df.rename(axis={"Date": "date"}, inplace=True)
+            return df.assign(symbol=symbol.upper())
+
             """
             NOTE:
             Why shouldnt blocking_download() be using threads?
             asnycio.to_thread(...) already lifts the whole yf.download() call into **one worker-thread** of Pythons default ThreadPoolExecutor.
             If you pass `threads = True` to *yfinance* you'd create a second layer of per-ticker threads inside *that* worker-thread. Basically,
             you would end up with something like:
-            ::mermaid
-            event-loop --> worker-thread \#1 -> yfinance spins up N-internal threads
 
+            .. mermaid
+            event-loop --> worker-thread \\#1 -> yfinance spins up N-internal threads
             """
+
+        return await asyncio.to_thread(_blocking_download)
+
+    async def _gather(
+        self,
+        symbols: list[str],
+        s: str,
+        e: str,
+        interval: str,
+    ):
+        tasks = [self._fetch_symbol(sym, s, e, interval) for sym in symbols]
+        return await asyncio.gather(*tasks)
+
+    def get_stock_price_data(
+        self,
+        symbols: list[str],
+        start_date: datetime | str,
+        end_date: datetime | str,
+        *,
+        interval: str | None = None,
+    ):
+        s = (
+            start_date.strftime("%Y-%m-%d")
+            if isinstance(start_date, datetime)
+            else start_date
+        )
+        e = (
+            end_date.strftime("%Y-%m-%d")
+            if isinstance(end_date, datetime)
+            else end_date
+        )
+        interval = interval or self._DEFAULT_INTERVAL
+        frames = asyncio.run(self._gather(symbols, s, e, interval))
+        df = pd.concat(frames, ignore_index=True)
+        return df.sort_values(["symbol", "date"]).reset_index(drop=True)

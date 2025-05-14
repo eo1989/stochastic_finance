@@ -1,14 +1,20 @@
-import mkt_notes_general.stochastic_finance.StockDataAdapter.visualizations as vis
-from StockDataAdapter.stock_price_dataset_adapter import YahooFinancialsAdapter
+import StockDataAdapter.visualizations as vis
+from StockDataAdapter.stock_price_dataset_adapter import (
+    FinancialModelingPrepAdapter,
+    YahooFinancialsAdapter,
+)
 
 
-def test_yahoo_financials_adapter():
+def test_actual_financials_adapter():
     records = {
         "Apple Inc": YahooFinancialsAdapter(
-            ticker="AAPL", training_set_date_range=("2024-09-01", "2024-11-30")
+            ticker="aapl", training_set_date_range=("2024-11-01", "2024-11-30")
         ).training_set,
-        "Google": YahooFinancialsAdapter(
-            ticker="GOOGL", training_set_date_range=("2024-09-01", "2024-11-30")
+        "Netflix": YahooFinancialsAdapter(
+            ticker="nflx", training_set_date_range=("2024-11-01", "2024-11-30")
+        ).training_set,
+        "Nvidia": FinancialModelingPrepAdapter(
+            ticker="nvda", training_set_date_range=("2025-05-01", "2024-05-12")
         ).training_set,
     }
 

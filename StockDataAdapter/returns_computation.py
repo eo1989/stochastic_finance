@@ -1,16 +1,22 @@
 import visualizations as vis
 
 from StockDataAdapter.stock_price_dataset_adapter import (
+    FinancialModelingPrepAdapter,
     Frequency,
     YahooFinancialsAdapter,
 )
 
+#
+# .. math::
+#    \\text{Return} = R_{t} = \\frac{ S_{t}}{S_{t-1} } - 1
+#
+
 
 def compute_returns():
     """
+    .. class:: mathjax_process
 
-    :::math
-    \text{Return} := R_{t} = \frac{S_{t}}{S_{t-1}} - 1
+    :: \text{Return} = R_{t} = \frac{ S_{t}}{S_{t-1} } - 1
 
     """
 
@@ -24,7 +30,10 @@ def compute_returns():
         weekly["stock price"] / weekly["stock price"].shift(1) - 1
     )
 
-    daily = YahooFinancialsAdapter(frequency=Frequency.DAILY).training_set
+    # daily = YahooFinancialsAdapter(frequency=Frequency.DAILY).training_set
+    # daily["Return"] = daily["stock price"] / daily["stock price"].shift(1) - 1
+
+    daily = FinancialModelingPrepAdapter(frequency=Frequency.DAILY).training_set
     daily["Return"] = daily["stock price"] / daily["stock price"].shift(1) - 1
 
     # periodic_returns = [("Daily", daily), ("Weekly", weekly), ("Monthly", monthly)]
