@@ -1,6 +1,6 @@
 import visualizations as vis
 
-from StockDataAdapter.stock_price_dataset_adapter import (
+from ch2_StockDataAdapter.stock_price_dataset_adapter import (
     FinancialModelingPrepAdapter,
     Frequency,
     YahooFinancialsAdapter,
