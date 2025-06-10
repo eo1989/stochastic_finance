@@ -14,6 +14,9 @@ import yfinance as yf
 from dotenv import load_dotenv
 from yahoofinancials import YahooFinancials
 
+# NOTE: YahooFinancials has a concurrent argument which I dont think gets set
+# by default.
+
 load_dotenv()
 # dotenv.load_dotenv("~/.config/zsh/.env").
 # env_path = f"/Users/eo/.config/zsh/.env"
@@ -65,6 +68,11 @@ class RequiresAPIKeyMixin:
 class Frequency(enum.Enum):
     """Sampling intervals supported by *yahoofinancials*."""
 
+    # NOTE: the intraday enums are specifically for YFinance & FMP
+    MINUTE = "1-min"
+    FIVE_MINUTE = "5-min"
+    # -------------------------------------------------------------------------
+    HOURLY = "hourly"
     DAILY = "daily"
     WEEKLY = "weekly"
     MONTHLY = "monthly"
@@ -79,7 +87,7 @@ class StockPriceDatasetAdapter(
     (training/validation style).
     """
 
-    DEFAULT_TICKER = "NVDA"
+    DEFAULT_TICKER: str = "NVDA"
 
     # ---------------------- Abstract interface ----------------------
     @property
@@ -109,7 +117,8 @@ class StockPriceDatasetAdapter(
     #     raise NotImplementedError
 
     """
-      Function to get validation dataset for a given stock symbol (ticker). This dataset can be used to train a stock price model.
+      Function to get validation dataset for a given stock symbol (ticker).
+      This dataset can be used to train a stock price model.
       Although there is no such restrictions on using it elsewhere.
 
       Returns
@@ -130,7 +139,9 @@ class BaseStockPriceDatasetAdapter(StockPriceDatasetAdapter, ABC):
     def _connect_and_prepare(self, date_range: tuple): ...
 
     """
-    This function should be overriden by implementing data source adapter. It should connect to the stock price data source and return records within the specified date range.
+    This function should be overridden by implementing data source adapter. It
+    should connect to the stock price data source and return records within the
+    specified date range.
     """
 
     # ---------------- public proxies ------------------
@@ -170,7 +181,8 @@ class YahooFinancialsAdapter(BaseStockPriceDatasetAdapter):
     ):
         super().__init__(ticker)
         self._frequency = frequency
-        self._yf = YahooFinancials(self._ticker)
+        # self._yf = YahooFinancials(self._ticker,)
+        self._yf = YahooFinancials(self._ticker, concurrent=True)
 
         self._training_set = self._connect_and_prepare(training_set_date_range)
         self._validation_set = self._connect_and_prepare(
