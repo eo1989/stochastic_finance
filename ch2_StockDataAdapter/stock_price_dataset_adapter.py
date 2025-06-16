@@ -69,8 +69,8 @@ class Frequency(enum.Enum):
     """Sampling intervals supported by *yahoofinancials*."""
 
     # NOTE: the intraday enums are specifically for YFinance & FMP
-    MINUTE = "1-min"
-    FIVE_MINUTE = "5-min"
+    MIN = "1-min"
+    FIVE_MIN = "5-min"
     # -------------------------------------------------------------------------
     HOURLY = "hourly"
     DAILY = "daily"
@@ -102,11 +102,7 @@ class StockPriceDatasetAdapter(
     This dataset can be used to train a stock price model.
     Although there are no such restrictions on using it elsewhere.
 
-    Returns
-
-    ----
-
-    A data frame. Each data frame has two columns: stock price & time
+    Returns a data frame. Each data frame has two columns: stock price & time
     """
 
     @property
@@ -121,16 +117,14 @@ class StockPriceDatasetAdapter(
       This dataset can be used to train a stock price model.
       Although there is no such restrictions on using it elsewhere.
 
-      Returns
-      ----
-      A dataframe. Each dataframe has two columns: stock price & time
+      Returns a dataframe. Each dataframe has two columns: stock price & time
     """
 
 
 class BaseStockPriceDatasetAdapter(StockPriceDatasetAdapter, ABC):
     """Caches training/validation dataframes and exposes read-only props."""
 
-    def __init__(self, ticker: str):
+    def __init__(self, ticker: str) -> None:
         self._ticker = ticker
         self._training_set: pd.DataFrame | None = None
         self._validation_set: pd.DataFrame | None = None
@@ -409,7 +403,7 @@ class FinancialModelingPrepAdapter(RequiresAPIKeyMixin, AsyncStockPriceAdapter):
 
     def __init__(
         self,
-        api_key: str | None = None,
+        api_key: str = _API_KEY_ENV,
         base_url: str = "https://financialmodelingprep.com/api/v3",
         timeout: int = 30,
     ):

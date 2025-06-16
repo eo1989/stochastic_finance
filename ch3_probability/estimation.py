@@ -1,6 +1,7 @@
+# type: ignore reportOpt
 from abc import ABC, abstractmethod
-from typing import Dict, List, TypedDict
 
+# from typing import Dict, List, TypedDict  # noqa: UP035
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -8,6 +9,7 @@ import seaborn as sns
 from scipy.stats import expon, norm
 
 from ch2_StockDataAdapter.stock_price_dataset_adapter import (
+    FinancialModelingPrepAdapter,
     YahooFinancialsAdapter,
 )
 from ch3_probability import visualization as vs3
@@ -21,7 +23,7 @@ class LogLikelihoodFunctionAnalysis(ABC):
 
     __instance_key = object()
 
-    class Dataset(TypedDict):
+    class Dataset:
         """
         This specifically typed dictionary works as a key-valued dataset.
         'source' is the name of the data source, and 'x' is the data array.
@@ -31,7 +33,10 @@ class LogLikelihoodFunctionAnalysis(ABC):
         x: list
 
     def __init__(
-        self, instance_key, θ_sets: dict[str, list], datasets: list[Dataset]
+        self,
+        instance_key,
+        θ_sets: dict[str, list],
+        datasets: list[Dataset],
     ):
         assert instance_key == LogLikelihoodFunctionAnalysis.__instance_key, (
             "LogLikelihoodFunctionAnalysis cant be instantiatted explicitly from the outside. Always use the instantiate function."
@@ -48,6 +53,7 @@ class LogLikelihoodFunctionAnalysis(ABC):
         The sub-class should override this function. It should return the likelihood of x.
         You may use the readily available likelihood functions or implement any custom one.
         """
+        ...
 
     @classmethod
     def for_parameters_and_datasets(
@@ -65,7 +71,7 @@ class LogLikelihoodFunctionAnalysis(ABC):
         return self._max_loglikelihood_details
 
     """
-    Function to prepare combinations of parameters for the specific density.
+    NOTE: Function to prepare combinations of parameters for the specific density.
     """
 
     def _prepare_combinations_for_θ(self) -> dict[str, list]:
@@ -143,17 +149,18 @@ class LogLikelihoodFunctionAnalysis(ABC):
         }
 
     def plot(self, θ_names: list[str] = None):
+        plt.switch_backend("webagg")
         plt.style.use("seaborn-v0_8")
 
         def _annotate_max_likelihood_point(ax, source):
             max_loglikelihood_point = self._max_loglikelihood_details[source]
-            liklihood_val = max_loglikelihood_point[1]
+            likelihood_val = max_loglikelihood_point[1]
             if len(self._θ_sets) == 1:
                 θ_name = list(max_loglikelihood_point[0].keys())[0]
                 θ_val = list(max_loglikelihood_point[0].values())[0]
                 ax.text(
                     θ_val,
-                    liklihood_val,
+                    likelihood_val,
                     θ_name + " = " + str(round(θ_val, 3)),
                 )
             else:
@@ -174,7 +181,7 @@ class LogLikelihoodFunctionAnalysis(ABC):
                 )
 
         if len(self._θ_sets) == 1:
-            θ_names = list(self._θ_sets.keys())[0]
+            θ_name = list(self._θ_sets.keys())[0]
             records_df = pd.DataFrame()
             for source, likelihood_details in self._total_loglikelihood.items():
                 record = {}
@@ -205,16 +212,20 @@ class LogLikelihoodFunctionAnalysis(ABC):
             row = int(n / 2)
 
             def _plot_for_single_sourec(source, likelihood_details, i):
-                # ax = fig.add_subplot(
-                #     nrows=row, ncols=2,  index = i, projection="3d", computed_zorder=False
-                # )
                 ax = fig.add_subplot(
                     nrows=row,
                     ncols=2,
-                    index=1,
-                    subplot_kw={"projection": "3d"},
+                    index=i,
+                    projection="3d",
                     computed_zorder=False,
                 )
+                # ax = fig.add_subplot(
+                #     nrows=row,
+                #     ncols=2,
+                #     index=1,
+                #     subplot_kw={"projection": "3d"},
+                #     computed_zorder=False,
+                # )
                 t_arr = np.array(likelihood_details)
                 θ_name_val_df = pd.DataFrame.from_records(t_arr[:, 0])
                 ax.plot_trisurf(
@@ -250,7 +261,9 @@ class ExponentialLogLikelihoodFunctionAnalysis(LogLikelihoodFunctionAnalysis):
 
     def _compute_likelihood(self, x, λ):
         return expon.pdf(
-            x, loc=0, scale=1 / λ
+            # x, loc=0, scale=1 / λ
+            x,
+            scale=1 / λ,
         )  # loc = 0 and scale = 1 are the defaults, and *optional*
 
 

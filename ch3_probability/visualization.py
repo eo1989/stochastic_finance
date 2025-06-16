@@ -51,7 +51,7 @@ def plot_cf(cf):
         ax[r, col].set_title(record[0])
         sns.lineplot(ax=ax[r, col], data=record[1], x="ω", y="ϕ(ω)", lw=2)
 
-    with i < n:
+    while i < n:
         _axis_plot_cf(cf[i], 0)
         i = i + 1
         _axis_plot_cf(cf[i], 1)
@@ -72,7 +72,8 @@ def poisson_plot(poisson_lambda_x_prob):
     r = 0
 
     def _axis_plot_lambda(record, col):
-        ax[r, col].set_title(f"λ = {str(lamdas[i])}")
+        # ax[r, col].set_title(f"λ = {str(lamdas[i])}")
+        ax[r, col].set_title("λ = " + str(lamdas[i]))
         ax[r, col].vlines(x=record[0], ymin=0, ymax=record[1])
         ax[r, col].set_xlabel("X")
         ax[r, col].set_ylabel("Probs")
